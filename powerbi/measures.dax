@@ -1,0 +1,77 @@
+// =====================================================================
+// RideOps Analytics — DAX measures
+// Tạo trong Power BI Desktop: chọn bảng _Measures -> New measure -> dán từng khối.
+// Bảng nguồn (đã đổi tên sau khi import):
+//   agg_trips_zone_hour, dim_date, dim_zone, dim_company, shortage (mart.v_shortage)
+// Nguyên tắc: trung bình = tổng / số đếm, để đúng ở mọi mức lọc.
+// =====================================================================
+
+// ---- Khối lượng --------------------------------------------------------
+Trips =
+SUM ( agg_trips_zone_hour[trip_count] )
+
+Days In Context =
+DISTINCTCOUNT ( agg_trips_zone_hour[pickup_date_key] )
+
+Trips per Day =
+DIVIDE ( [Trips], [Days In Context] )
+
+// ---- Thời gian chờ -----------------------------------------------------
+Avg Wait (min) =
+DIVIDE (
+    SUM ( agg_trips_zone_hour[wait_seconds_sum] ),
+    SUM ( agg_trips_zone_hour[wait_count] )
+) / 60
+
+// Mặt bằng: chờ TB của toàn thành phố, giữ nguyên các bộ lọc thời gian / hãng
+City Avg Wait (min) =
+CALCULATE ( [Avg Wait (min)], REMOVEFILTERS ( dim_zone ) )
+
+// > 1 = khu vực đang chọn chờ lâu hơn mặt bằng thành phố
+Wait vs City =
+DIVIDE ( [Avg Wait (min)], [City Avg Wait (min)] )
+
+// ---- Chuyến đi & doanh thu ---------------------------------------------
+Avg Trip Miles =
+DIVIDE ( SUM ( agg_trips_zone_hour[trip_miles_sum] ), [Trips] )
+
+Gross Fare =
+SUM ( agg_trips_zone_hour[base_fare_sum] )
+
+Avg Fare =
+DIVIDE ( [Gross Fare], [Trips] )
+
+// ---- Thu nhập tài xế ---------------------------------------------------
+Driver Pay =
+SUM ( agg_trips_zone_hour[driver_pay_sum] )
+
+Driver Share % =
+DIVIDE ( [Driver Pay], [Gross Fare] )
+
+Trip Hours =
+DIVIDE ( SUM ( agg_trips_zone_hour[trip_seconds_sum] ), 3600 )
+
+// Thu nhập trên mỗi giờ CHỞ KHÁCH (không tính thời gian chạy rỗng — dữ liệu không có)
+Driver Pay per Trip Hour =
+DIVIDE ( [Driver Pay], [Trip Hours] )
+
+Tips % of Pay =
+DIVIDE ( SUM ( agg_trips_zone_hour[tips_sum] ), [Driver Pay] )
+
+// ---- So sánh theo thời gian (cần đánh dấu dim_date là Date table) --------
+Trips Prev Month =
+CALCULATE ( [Trips], DATEADD ( dim_date[full_date], -1, MONTH ) )
+
+Trips Per Day MoM % =
+VAR cur = [Trips per Day]
+VAR prev =
+    CALCULATE ( [Trips per Day], DATEADD ( dim_date[full_date], -1, MONTH ) )
+RETURN
+    DIVIDE ( cur - prev, prev )
+
+// ---- Thiếu xe (từ bảng shortage = mart.v_shortage) ----------------------
+Shortage Cells =
+CALCULATE ( COUNTROWS ( shortage ), shortage[is_shortage] = TRUE () )
+
+Excess Wait Min per Day =
+CALCULATE ( SUM ( shortage[excess_wait_min_per_day] ), shortage[is_shortage] = TRUE () )
